@@ -79,9 +79,8 @@ def to_md_files(username, total_pages, cookie_file, start=1, stop=None, hexo=Tru
             }
             # 根据文章 id 获取文章数据
             r = requests.get(base_url, params=params, cookies=cookies)
-            article_soup = BeautifulSoup(r.text, 'lxml')
             try:
-                data = json.loads(article_soup.p.text, strict=False)
+                data = json.loads(r.text, strict=False)
             except Exception as e:
                 logging.error('Something wrong happend. {}'.format(e))
             # 标题
