@@ -68,14 +68,14 @@ def to_md_files(username, total_pages, cookie_file, start=1, stop=None, hexo=Tru
         logging.info('Page {}'.format(p))
         # 获取该页文章
         articles = requests.get(
-            'http://blog.csdn.net/u010099080/article/list/' + str(p), cookies=cookies).text
+            'http://blog.csdn.net/'+username+'/article/list/' + str(p), cookies=cookies).text
         soup = BeautifulSoup(articles, 'lxml')
-        for article in soup.find('div', id='article_list').find_all('a', href=True, title=False):
-            article_id = article['href'].split('/')[-1]
-            base_url = 'http://write.blog.csdn.net/mdeditor/getArticle'
+        for article in soup.find_all('div', attrs={'class':'article-item-box','style':''}):
+            article_id = article['data-articleid']
+            create = article.find('span',attrs={'class':'date'}).text
+            base_url = 'https://mp.csdn.net/mdeditor/getArticle'
             params = {
-                'id': article_id,
-                'username': username
+                'id': article_id
             }
             # 根据文章 id 获取文章数据
             r = requests.get(base_url, params=params, cookies=cookies)
@@ -96,7 +96,7 @@ def to_md_files(username, total_pages, cookie_file, start=1, stop=None, hexo=Tru
             hexo_str = ''
             if hexo:
                 hexo_str = '---\ntitle: {title}\ndate: {date}\ntags:\n---\n\n'.format(
-                    title=title, date=data['data']['create'])
+                    title=title, date=create)
             # Windows 下文件名中的非法字符
             forbidden = ['\\', '/', ':', '*', '?', '"', '<', '>', '|']
             # 如果文章名含有非法字符，那么使用其 id 作为 md 文件名
