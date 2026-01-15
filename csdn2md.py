@@ -12,18 +12,80 @@
 
 Good luck，CSDN sucks。
 """
-
+import hmac
 import json
 import logging
 import os
-
+import uuid
 import fire
 import requests
+import base64
+import hashlib
 from bs4 import BeautifulSoup
 
 logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s',
                     level=logging.INFO,
                     datefmt='%Y-%m-%d %H:%M:%S')
+# CSDN 固定的签名常量，抓包得到
+APP_KEY = ""
+APP_SECRET = ""
+
+def get_csdn_headers(method, url, params=None):
+    """
+    根据源代码逻辑生成动态签名 Headers
+    """
+    x_ca_nonce = str(uuid.uuid4())
+    accept = "*/*"
+    content_type = "application/json;charset=UTF-8"
+    date = ""
+    
+    # 1. 提取路径并对参数排序
+    # 只保留路径部分，剔除域名
+    path = url.replace("https://bizapi.csdn.net", "")
+    
+    if params:
+        # 按 Key 字典序排序
+        sorted_keys = sorted(params.keys())
+        query_str = "&".join([f"{k}={params[k]}" for k in sorted_keys])
+        path_with_params = f"{path}?{query_str}"
+    else:
+        path_with_params = path
+
+    # 2. 构造待签名字符串 (String_To_Sign)
+    # 顺序：Method, Accept, Content-MD5, Content-Type, Date, Headers, Path
+    # 注意 headers 部分只包含 x-ca-key 和 x-ca-nonce
+    headers_to_sign = f"x-ca-key:{APP_KEY}\nx-ca-nonce:{x_ca_nonce}\n"
+    
+    string_to_sign = (
+        f"{method.upper()}\n"
+        f"{accept}\n"
+        f"\n"  # Content-MD5 留空
+        f"{content_type}\n"
+        f"{date}\n"
+        f"{headers_to_sign}"
+        f"{path_with_params}"
+    )
+
+    # 3. 计算 HMAC-SHA256
+    signature = base64.b64encode(
+        hmac.new(
+            APP_SECRET.encode('utf-8'),
+            string_to_sign.encode('utf-8'),
+            hashlib.sha256
+        ).digest()
+    ).decode('utf-8')
+
+    return {
+        'accept': accept,
+        'content-type': content_type,
+        'x-ca-key': APP_KEY,
+        'x-ca-nonce': x_ca_nonce,
+        'x-ca-signature': signature,
+        'x-ca-signature-headers': 'x-ca-key,x-ca-nonce',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'referer': 'https://editor.csdn.net/',
+        'origin': 'https://editor.csdn.net'
+    }
 
 
 def read_and_parse_cookies(cookie_file):
@@ -60,30 +122,70 @@ def to_md_files(username, total_pages, cookie_file, start=1, stop=None, hexo=Tru
     if not os.path.exists(md_dir):
         os.makedirs(md_dir)
     # 全部可用的 UA 在 usa.txt 文件中
-    headers = {
-        'user-agent': 'Mozilla/5.0 (X11; CrOS i686 3912.101.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/27.0.1453.116 Safari/537.36'
+    cookies = {
+       #开发工具复制为py之后使用curl2python生成
     }
-    cookies = read_and_parse_cookies(cookie_file)
+
+            
+
     for p in range(start, stop + 1):
         logging.info('Page {}'.format(p))
         # 获取该页文章
-        articles = requests.get(
-            'http://blog.csdn.net/'+username+'/article/list/' + str(p), cookies=cookies).text
+        headers = {
+
+        'accept': '*/*',
+
+        'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6',
+
+        'cache-control': 'no-cache',
+
+        'origin': 'https://editor.csdn.net',
+
+        'pragma': 'no-cache',
+
+        'priority': 'u=1, i',
+
+        'referer': 'https://editor.csdn.net/',
+
+        'sec-ch-ua': '"Microsoft Edge";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
+
+        'sec-ch-ua-mobile': '?0',
+
+        'sec-ch-ua-platform': '"Windows"',
+
+        'sec-fetch-dest': 'empty',
+
+        'sec-fetch-mode': 'cors',
+
+        'sec-fetch-site': 'same-site',
+
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0',
+
+    }
+        response=requests.get(
+            'https://blog.csdn.net/'+username+'/article/list/' + str(p), cookies=cookies,headers=headers)
+        articles = response.text
         soup = BeautifulSoup(articles, 'lxml')
-        for article in soup.find_all('div', attrs={'class':'article-item-box','style':''}):
+        for article in soup.find_all('div', attrs={'class':'article-item-box'}):
+            print(article)
             article_id = article['data-articleid']
             create = article.find('span',attrs={'class':'date'}).text
-            base_url = 'https://mp.csdn.net/mdeditor/getArticle'
+            base_url = 'https://bizapi.csdn.net/blog-console-api/v3/editor/getArticle'
             params = {
                 'id': article_id
             }
+            print(article_id)
             # 根据文章 id 获取文章数据
-            r = requests.get(base_url, params=params, cookies=cookies)
+                # 关键：动态获取 Headers
+            headers = get_csdn_headers("GET", base_url, params)
+            r = requests.get(base_url, params=params, cookies=cookies,headers=headers)
             try:
                 data = json.loads(r.text, strict=False)
+#                print(data)
             except Exception as e:
                 logging.error('Something wrong happend. {}'.format(e))
             # 标题
+            print(data)
             title = data['data']['title'].strip()
             # md 形式的文章内容
             content = data['data']['markdowncontent']
@@ -95,7 +197,7 @@ def to_md_files(username, total_pages, cookie_file, start=1, stop=None, hexo=Tru
             # hexo_str 是用 hexo 写文章时需要在头部加的东西
             hexo_str = ''
             if hexo:
-                hexo_str = '---\ntitle: {title}\ndate: {date}\ntags:\n---\n\n'.format(
+                hexo_str = '---\ntitle: "{title}"\ndate: {date}\ntags:\n---\n\n'.format(
                     title=title, date=create)
             # Windows 下文件名中的非法字符
             forbidden = ['\\', '/', ':', '*', '?', '"', '<', '>', '|']
